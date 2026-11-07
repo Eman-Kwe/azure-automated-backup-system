@@ -13,3 +13,21 @@ resource "azurerm_storage_account" "main" {
   account_replication_type = "LRS"      # Locally redundant: 3 copies in one datacenter, lowest cost
   tags                     = var.tags
 }
+
+
+# File share: the thing we will back up. Lives inside the storage account.
+resource "azurerm_storage_share" "main" {
+  name               = "backupshare"                   # Lowercase letters, numbers, hyphens only
+  storage_account_id = azurerm_storage_account.main.id # Links the share to the storage account
+  quota              = 5                               # Max size in GB
+}
+
+# Recovery Services vault: holds the backups and the backup policy.
+resource "azurerm_recovery_services_vault" "main" {
+  name                = "rsv-backup-${var.yourname}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  sku                 = "Standard"
+  storage_mode_type   = "LocallyRedundant" # Backups kept in one region only: 
+  tags                = var.tags
+}

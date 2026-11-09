@@ -67,3 +67,50 @@ resource "azurerm_backup_protected_file_share" "main" {
   # Container registration must finish first. No attribute links them, so state it explicitly.
   depends_on = [azurerm_backup_container_storage_account.main]
 }
+
+# Action group: who gets notified when an alert fires.
+resource "azurerm_monitor_action_group" "backup_alerts" {
+  name                = "ag-backup-${var.yourname}"
+  resource_group_name = azurerm_resource_group.main.name
+  short_name          = "backupalert" # Max 12 characters
+
+  email_receiver {
+    name                    = "backup-admin"
+    email_address           = var.alert_email
+    use_common_alert_schema = true
+  }
+
+  tags = var.tags
+}
+
+# Metric alert: fires when the vault reports a backup health event that is not "Healthy".
+resource "azurerm_monitor_metric_alert" "backup_failure" {
+  name                = "alert-backup-failure-${var.yourname}"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_recovery_services_vault.main.id]
+  description         = "Backup health event reported for the file share"
+  severity            = 1       # 0 = critical ... 4 = verbose
+  frequency           = "PT5M"  # How often the rule is evaluated
+  window_size         = "PT15M" # Look-back period; must be >= frequency
+
+  criteria {
+    metric_namespace = "Microsoft.RecoveryServices/vaults"
+    metric_name      = "BackupHealthEvent"
+    aggregation      = "Count"
+    operator         = "GreaterThan"
+    threshold        = 0
+
+    # Ignore healthy events so successful backups do not trigger email
+    dimension {
+      name     = "healthStatus"
+      operator = "Exclude"
+      values   = ["Healthy"]
+    }
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.backup_alerts.id
+  }
+
+  tags = var.tags
+}

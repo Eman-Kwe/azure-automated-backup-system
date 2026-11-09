@@ -9,17 +9,17 @@ resource "azurerm_storage_account" "main" {
   name                     = "stbackup${var.yourname}"
   resource_group_name      = azurerm_resource_group.main.name
   location                 = azurerm_resource_group.main.location
-  account_tier             = "Standard" # Standard = hard disk storage, cheaper than Premium (SSD)
-  account_replication_type = "LRS"      # Locally redundant: 3 copies in one datacenter, lowest cost
+  account_tier             = var.storage_account_tier     # Standard = hard disk storage, cheaper than Premium (SSD)
+  account_replication_type = var.storage_replication_type # Locally redundant: 3 copies in one datacenter, lowest cost
   tags                     = var.tags
 }
 
 
 # File share: the thing we will back up. Lives inside the storage account.
 resource "azurerm_storage_share" "main" {
-  name               = "backupshare"                   # Lowercase letters, numbers, hyphens only
+  name               = var.file_share_name             # Lowercase letters, numbers, hyphens only
   storage_account_id = azurerm_storage_account.main.id # Links the share to the storage account
-  quota              = 5                               # Max size in GB
+  quota              = var.file_share_quota_gb         # Max size in GB
 }
 
 # Recovery Services vault: holds the backups and the backup policy.
@@ -28,7 +28,7 @@ resource "azurerm_recovery_services_vault" "main" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   sku                 = "Standard"
-  storage_mode_type   = "LocallyRedundant" # Backups kept in one region only: cheaper for learning
+  storage_mode_type   = var.vault_storage_mode # Backups kept in one region only: cheaper for learning
   tags                = var.tags
 }
 
@@ -37,15 +37,15 @@ resource "azurerm_backup_policy_file_share" "daily" {
   name                = "policy-daily-${var.yourname}"
   resource_group_name = azurerm_resource_group.main.name
   recovery_vault_name = azurerm_recovery_services_vault.main.name
-  timezone            = "UTC"
+  timezone            = var.backup_timezone
 
   backup {
     frequency = "Daily"
-    time      = "23:00" # 24-hour clock, in the timezone above
+    time      = var.backup_time # 24-hour clock, in the timezone above
   }
 
   retention_daily {
-    count = 7 # Keep 7 daily backups
+    count = var.daily_retention_count # Number of daily backups kept
   }
 }
 
@@ -66,4 +66,51 @@ resource "azurerm_backup_protected_file_share" "main" {
 
   # Container registration must finish first. No attribute links them, so state it explicitly.
   depends_on = [azurerm_backup_container_storage_account.main]
+}
+
+# Action group: who gets notified when an alert fires.
+resource "azurerm_monitor_action_group" "backup_alerts" {
+  name                = "ag-backup-${var.yourname}"
+  resource_group_name = azurerm_resource_group.main.name
+  short_name          = var.action_group_short_name # Max 12 characters
+
+  email_receiver {
+    name                    = "backup-admin"
+    email_address           = var.alert_email
+    use_common_alert_schema = true
+  }
+
+  tags = var.tags
+}
+
+# Metric alert: fires when the vault reports a backup health event that is not "Healthy".
+resource "azurerm_monitor_metric_alert" "backup_failure" {
+  name                = "alert-backup-failure-${var.yourname}"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_recovery_services_vault.main.id]
+  description         = "Backup health event reported for the file share"
+  severity            = var.alert_severity    # 0 = critical ... 4 = verbose
+  frequency           = var.alert_frequency   # How often the rule is evaluated
+  window_size         = var.alert_window_size # Look-back period; must be >= frequency
+
+  criteria {
+    metric_namespace = "Microsoft.RecoveryServices/vaults"
+    metric_name      = "BackupHealthEvent"
+    aggregation      = "Count"
+    operator         = "GreaterThan"
+    threshold        = 0
+
+    # Ignore healthy events so successful backups do not trigger email
+    dimension {
+      name     = "healthStatus"
+      operator = "Exclude"
+      values   = ["Healthy"]
+    }
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.backup_alerts.id
+  }
+
+  tags = var.tags
 }

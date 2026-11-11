@@ -123,3 +123,13 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 
 - `terraform.tfvars`, state files, and `.terraform/` are git-ignored. Never commit state: it can contain secrets.
 - The subscription ID is passed through the `ARM_SUBSCRIPTION_ID` environment variable, not stored in code.
+
+
+
+Author: Manuel Yannick Armah
+
+Project: 
+
+Difficulty: Beginner
+
+Time to Complete: 

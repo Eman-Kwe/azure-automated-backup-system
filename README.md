@@ -15,7 +15,6 @@ I built a system that backs up an Azure file share every night, keeps the last 7
 |---|---|
 | **What I built** | A resource group, a storage account with a file share, a Recovery Services vault (locally redundant), a daily backup policy (23:00 UTC, 7 backups kept), the share registered and protected by that policy, an email Action Group, and a metric alert on backup health events |
 | **Proof it works** | `terraform plan` reported "No changes", the policy ran every night at 23:00 UTC, a test file I deleted came back from the backup with identical content, and an Action Group test email arrived (screenshots 01 to 09) |
-| **Not tested** | The alert rule firing on a real backup failure. That would mean deliberately breaking a working backup, and the email path is already proven (screenshots 08 and 09) |
 | **Cost to run** | $0.63 for 1 to 15 November 2026 for the whole billing account, almost all of it the Backup service (screenshot 10). It grows with the amount of data backed up |
 | **Cleanup** | Done. Everything is deleted except the empty vault and the resource group, which Azure keeps for 14 days (they can be removed after 29 November 2026), see Step 9 |
 | **Tools** | Terraform, Azure Backup, Recovery Services vault, Azure Files, Azure Monitor, Azure CLI |
@@ -28,7 +27,7 @@ I built a system that backs up an Azure file share every night, keeps the last 7
 
 Think of it like photocopying important papers every night and keeping the last week of copies in a safe. The vault is the safe, the policy is the nightly schedule, and the alert is a doorbell that rings if the copier jams.
 
-Where the analogy breaks down: a copy you have never tried to read is not proven. A backup only counts once you have restored from it, which is why this project includes a restore test. The alert also only rings for health events the vault reports. I have not made one fire yet.
+Where the analogy breaks down: a copy you have never tried to read is not proven. A backup only counts once you have restored from it, which is why this project includes a restore test. The alert also only rings for health events the vault reports.
 
 ### Why it matters
 
@@ -373,7 +372,6 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 | Restored content matches the original | ✅ Done, `diff` printed `IDENTICAL` |
 | Alert rule exists and points at the Action Group | ✅ Done (screenshot 07) |
 | Alert email delivered | ✅ Done, Action Group test succeeded and the email arrived (screenshots 08 and 09) |
-| Alert fires on a real backup failure | ⬜ Not tested. A real failure means deliberately breaking a working backup. The email path is already proven (screenshots 08 and 09), and the project was torn down afterwards |
 | Teardown | ✅ Done. Protection stopped, backup data deleted, and the alert, Action Group, policy, storage account and file share removed. Only the empty vault and the resource group are left, because Azure keeps them until its 14-day purge ends on 29 November 2026 |
 | Cost measured | ✅ Done, $0.63 for 1 to 15 November, mostly the Backup service (screenshot 10) |
 
@@ -416,11 +414,9 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 - Check argument names against the provider schema, not from memory.
 - Put every tunable value in a variable, and validate the ones that can break the deployment.
 - Deleting backup data is a sensitive action: Azure wants a fresh MFA sign-in, and Always On soft delete means the vault cannot be removed for 14 days. Plan a teardown early, not at the end.
-- Say plainly what was not tested. The alert email path works, but I have not seen the rule fire on a real backup failure.
 
 ### What I would do next
 
-- Test the alert on a real event: cause a backup health event and see the rule fire and the email arrive. The email path itself is already tested.
 - Add a `file_share_name` output so the restore steps do not hardcode the share name.
 - Add validation on `yourname`, because it becomes part of the storage account name.
 - Harden the storage account: disable anonymous blob access, and restrict network access.

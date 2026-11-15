@@ -14,9 +14,9 @@ I built a system that backs up an Azure file share every night, keeps the last 7
 | | |
 |---|---|
 | **What I built** | A resource group, a storage account with a file share, a Recovery Services vault (locally redundant), a daily backup policy (23:00 UTC, 7 backups kept), the share registered and protected by that policy, an email Action Group, and a metric alert on backup health events |
-| **Proof it works** | `terraform plan` reported "No changes", the policy ran every night at 23:00 UTC, and a test file I deleted came back from the backup with identical content (screenshots 01 to 06) |
-| **Not tested yet** | The alert email itself. The alert rule exists and points at the Action Group (screenshot 07), but no failing backup has fired it |
-| **Cost to run** | Not measured yet. It grows with the amount of data backed up. Check Cost Management for real figures |
+| **Proof it works** | `terraform plan` reported "No changes", the policy ran every night at 23:00 UTC, a test file I deleted came back from the backup with identical content, and an Action Group test email arrived (screenshots 01 to 09) |
+| **Not tested yet** | The alert firing on a real backup failure. The email path works (screenshots 08 and 09), but no failing backup has triggered the rule itself |
+| **Cost to run** | $0.63 for 1 to 15 November 2026 for the whole billing account, almost all of it the Backup service (screenshot 10). It grows with the amount of data backed up |
 | **Cleanup** | Not done. Do not run `terraform destroy` straight away, see Destroying the project |
 | **Tools** | Terraform, Azure Backup, Recovery Services vault, Azure Files, Azure Monitor, Azure CLI |
 
@@ -130,7 +130,7 @@ flowchart LR
 | Azure CLI | 2.90.0 |
 | An email address for alerts | any |
 
-**Time and cost:** see the footer. Cost is not measured yet.
+**Time and cost:** see the footer. Cost is in Step 8: $0.63 so far in November.
 
 ---
 
@@ -294,7 +294,25 @@ In the portal under Monitor, Alerts, Alert rules, the rule `alert-backup-failure
 
 ![alert rule](images/07-alert-rule.png)
 
-This shows the rule is set up. It does not prove an email arrives, because no backup has failed. That test is listed under next steps.
+This shows the rule is set up. It does not prove an email arrives, so the next step tests that.
+
+### Step 7: Test the alert email
+A real backup failure is hard to cause on purpose, so I tested the notification path directly. The Action Group's email receiver shows **Verified**, and in the portal I used Monitor, Alerts, Action groups, `ag-backup-<name>`, **Test**. I picked a sample alert type and the test completed with **Success** for `backup-admin`:
+
+![Action Group test succeeded](images/08-action-group-test.png)
+
+The email arrived in my inbox. It is Azure's sample message, so the alert name, resource and IDs in it are made-up test values:
+
+![alert test email](images/09-alert-email.png)
+
+This proves the Action Group can email me. It does not prove the vault's `BackupHealthEvent` condition fires, because no backup has failed.
+
+### Step 8: Check the cost
+In Cost Management, Cost analysis, with the date range set to November 2026 and the services grouped, the actual cost so far is **$0.63**, with a forecast of $1.71 for the month. By service: Backup $0.63, Storage under $0.01, Azure Monitor $0.00, Bandwidth $0.00.
+
+![cost analysis](images/10-cost-analysis.png)
+
+This is the whole billing account, not only this project, and Azure cost data can lag by a day or two. It shows that the backup service is the main charge, and it is small.
 
 ---
 
@@ -316,9 +334,10 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 | File restored from a recovery point | ✅ Done, Restore Completed in 33 seconds (screenshots 05 and 06) |
 | Restored content matches the original | ✅ Done, `diff` printed `IDENTICAL` |
 | Alert rule exists and points at the Action Group | ✅ Done (screenshot 07) |
-| Alert email delivered | ⬜ Not tested yet |
+| Alert email delivered | ✅ Done, Action Group test succeeded and the email arrived (screenshots 08 and 09) |
+| Alert fires on a real backup failure | ⬜ Not tested yet |
 | Teardown verified | ⬜ Not done yet |
-| Cost measured | ⬜ Not done yet |
+| Cost measured | ✅ Done, $0.63 for 1 to 15 November, mostly the Backup service (screenshot 10) |
 
 ---
 
@@ -327,7 +346,7 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 - **Secrets and state out of Git.** `terraform.tfvars`, state files, saved plans and `.terraform/` are in `.gitignore`. Never commit state: it can contain secrets.
 - **Subscription ID not in code.** It is passed through the `ARM_SUBSCRIPTION_ID` environment variable.
 - **Alert email is a variable.** The example file holds placeholders only.
-- **Screenshots checked before committing.** The subscription ID is blacked out in the alert rule screenshot, and the portal bar that shows my account email is cropped out of all of them.
+- **Screenshots checked before committing.** The subscription ID, my email address and the billing account name are blacked out wherever they appeared (screenshots 07, 08 and 10), and the portal bar that shows my account email is cropped out of all of them.
 - **Known gaps.** The storage account still allows public network access, storage key access and anonymous blob access, which are Azure defaults. None are needed for a file share backup, and hardening them is listed under next steps.
 
 ---
@@ -354,11 +373,11 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 - The Azure CLI starts backup and restore jobs and returns at once. Check the job list before moving on.
 - Check argument names against the provider schema, not from memory.
 - Put every tunable value in a variable, and validate the ones that can break the deployment.
-- Say plainly what was not tested. The alert rule exists, but I have not seen it fire.
+- Say plainly what was not tested. The alert email path works, but I have not seen the rule fire on a real backup failure.
 
 ### What I would do next
 
-- Test the alert end to end: confirm the Action Group email is verified, then cause a backup health event and see the email arrive.
+- Test the alert on a real event: cause a backup health event and see the rule fire and the email arrive. The email path itself is already tested.
 - Add a `file_share_name` output so the restore steps do not hardcode the share name.
 - Add validation on `yourname`, because it becomes part of the storage account name.
 - Harden the storage account: disable anonymous blob access, and restrict network access.

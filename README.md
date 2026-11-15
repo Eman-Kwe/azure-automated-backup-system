@@ -372,7 +372,7 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 | Restored content matches the original | ✅ Done, `diff` printed `IDENTICAL` |
 | Alert rule exists and points at the Action Group | ✅ Done (screenshot 07) |
 | Alert email delivered | ✅ Done, Action Group test succeeded and the email arrived (screenshots 08 and 09) |
-| Teardown | ✅ Done. Protection stopped, backup data deleted, and the alert, Action Group, policy, storage account and file share removed. Only the empty vault and the resource group are left, because Azure keeps them until its 14-day purge ends on 29 November 2026 |
+| Teardown Verified | ✅ Done. Protection stopped, backup data deleted, and the alert, Action Group, policy, storage account and file share removed. Only the empty vault and the resource group are left, because Azure keeps them until its 14-day purge ends on 29 November 2026 |
 | Cost measured | ✅ Done, $0.63 for 1 to 15 November, mostly the Backup service (screenshot 10) |
 
 ---

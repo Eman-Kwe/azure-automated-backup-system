@@ -78,21 +78,8 @@ azure-automated-backup-system/
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Storage
-        SA[Storage account] --> FS[File share]
-    end
-    subgraph Vault[Recovery Services vault]
-        POL[Daily policy<br/>23:00 UTC, keep 7]
-        ITEM[Protected file share]
-        POL --> ITEM
-    end
-    FS -- registered and protected --> ITEM
-    ITEM -- BackupHealthEvent metric --> ALERT[Metric alert]
-    ALERT --> AG[Action Group]
-    AG --> MAIL[Email]
-```
+<img width="1672" height="941" alt="Azure Automated Backup Architecture" src="https://github.com/user-attachments/assets/33ef4c88-e303-484b-aa73-ea1dff36fe7c" />
+
 
 ### How it works
 

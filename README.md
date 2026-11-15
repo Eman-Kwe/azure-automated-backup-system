@@ -325,7 +325,19 @@ az backup protection disable -g $RG -v $VAULT -c "$CONTAINER" -i "$ITEM" --backu
 
 The `DeleteBackupData` job completed in 21 seconds on 15 November 2026. The item then showed `ProtectionStopped` with the delete scheduled and about 14 days remaining, so the automatic purge is due around 29 November 2026. Until then the data is still recoverable.
 
-Stage 2, after the purge, is `terraform destroy` for the rest, then a check that nothing is left:
+Then I ran `terraform destroy`. It failed twice with `RequestDisallowedByAzure` (a 401 saying the delete needed MFA), even though the same login had just passed MFA for `az backup protection disable`. I did not find the cause. Terraform deleted nothing, so I removed what I could with `az` commands instead, and those worked:
+
+```bash
+az monitor metrics alert delete -g $RG -n alert-backup-failure-<name>
+az monitor action-group delete -g $RG -n ag-backup-<name>
+az backup policy delete -g $RG -v $VAULT -n policy-daily-<name>
+```
+
+Unregistering the storage account from the vault failed with `CloudInternalError`. The container already showed as `SoftDeleted`, so I expect it to be blocked until the purge, but I have not confirmed that.
+
+Left in Azure after stage 1: the vault, the storage account with its file share, and the resource group. Terraform's state still lists all nine resources, so the final `terraform destroy` should see that the alert, Action Group and policy are already gone and remove them from the state.
+
+Stage 2, on or after 29 November 2026, is `terraform destroy` for the rest, then a check that nothing is left:
 
 ```bash
 az group list --query "[].name" -o tsv
@@ -356,7 +368,7 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 | Alert rule exists and points at the Action Group | ✅ Done (screenshot 07) |
 | Alert email delivered | ✅ Done, Action Group test succeeded and the email arrived (screenshots 08 and 09) |
 | Alert fires on a real backup failure | ⬜ Not tested yet |
-| Teardown verified | ⏳ In progress. Stage 1 done on 15 November (protection stopped, backup data deleted). Stage 2 is due after 29 November |
+| Teardown verified | ⏳ In progress. On 15 November: protection stopped, backup data deleted, alert, Action Group and policy removed. The vault, storage account and resource group remain until the purge after 29 November |
 | Cost measured | ✅ Done, $0.63 for 1 to 15 November, mostly the Backup service (screenshot 10) |
 
 ---
@@ -384,6 +396,8 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 | The vault cannot be deleted by `terraform destroy` | Soft delete is on and the share still has a backup item | Stop protection and delete the backup data first, then destroy |
 | Always On soft delete: vault still cannot be deleted after the backup data is deleted | The deleted items are kept 14 days and Always On cannot be switched off | Wait for the automatic purge (14 days), then destroy again |
 | `AADSTS50076` when deleting backup data | Azure requires a fresh multi-factor sign-in for this sensitive action | Run the `az login --claims-challenge ...` command from the error message, complete MFA, then retry |
+| `terraform destroy` fails with `RequestDisallowedByAzure` (401, MFA) right after an MFA login | I did not find the cause. The same login worked for `az` commands | Delete the resources with `az` commands, then let the final `terraform destroy` clean up the state |
+| `az backup container unregister` fails with `CloudInternalError` | Probably the soft-deleted backup data, not confirmed | Wait for the purge and try again |
 | A command printed nothing and changed nothing | I filtered its output with `grep`, which hid the error | Run it without a filter to read the real message |
 | A soft delete argument was rejected as deprecated | Argument names changed in azurerm 4.x | Check names with `terraform providers schema -json` before using them |
 

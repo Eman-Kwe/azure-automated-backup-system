@@ -1,11 +1,11 @@
 # Azure-Automated-Backup-System-with-Terraform
 I built a system that backs up an Azure file share every night, keeps the last 7 backups, and emails the owner when the vault reports a backup health problem. Everything is built with Terraform, and I proved it works by deleting a file and restoring it from a backup.
 
-<!--
+
 ### 🎬 Video Walkthrough
 
 [Watch the project walkthrough](PASTE-LOOM-LINK-HERE)
--->
+
 
 ---
 

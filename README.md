@@ -6,8 +6,6 @@ I built a system that backs up an Azure file share every night, keeps the last 7
 
 [Watch the project walkthrough](PASTE-LOOM-LINK-HERE)
 
-To publish: paste your Loom URL above and delete the two comment lines (the opening and closing arrows).
--->
 
 ---
 

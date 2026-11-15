@@ -14,10 +14,10 @@ I built a system that backs up an Azure file share every night, keeps the last 7
 | | |
 |---|---|
 | **What I built** | A resource group, a storage account with a file share, a Recovery Services vault (locally redundant), a daily backup policy (23:00 UTC, 7 backups kept), the share registered and protected by that policy, an email Action Group, and a metric alert on backup health events |
-| **Proof it works** | `terraform plan` reported "No changes", the policy ran every night at 23:00 UTC, and a test file I deleted came back from the backup with identical content (screenshots 01 to 06) |
-| **Not tested yet** | The alert email itself. The alert rule exists and points at the Action Group (screenshot 07), but no failing backup has fired it |
-| **Cost to run** | Not measured yet. It grows with the amount of data backed up. Check Cost Management for real figures |
-| **Cleanup** | Not done. Do not run `terraform destroy` straight away, see Destroying the project |
+| **Proof it works** | `terraform plan` reported "No changes", the policy ran every night at 23:00 UTC, a test file I deleted came back from the backup with identical content, and an Action Group test email arrived (screenshots 01 to 09) |
+| **Not tested yet** | The alert firing on a real backup failure. The email path works (screenshots 08 and 09), but no failing backup has triggered the rule itself |
+| **Cost to run** | $0.63 for 1 to 15 November 2026 for the whole billing account, almost all of it the Backup service (screenshot 10). It grows with the amount of data backed up |
+| **Cleanup** | In progress. Everything is deleted except the empty vault and the resource group. The vault can only be removed after 29 November 2026, see Step 9 |
 | **Tools** | Terraform, Azure Backup, Recovery Services vault, Azure Files, Azure Monitor, Azure CLI |
 
 ---
@@ -130,7 +130,7 @@ flowchart LR
 | Azure CLI | 2.90.0 |
 | An email address for alerts | any |
 
-**Time and cost:** see the footer. Cost is not measured yet.
+**Time and cost:** see the footer. Cost is in Step 8: $0.63 so far in November.
 
 ---
 
@@ -294,13 +294,69 @@ In the portal under Monitor, Alerts, Alert rules, the rule `alert-backup-failure
 
 ![alert rule](images/07-alert-rule.png)
 
-This shows the rule is set up. It does not prove an email arrives, because no backup has failed. That test is listed under next steps.
+This shows the rule is set up. It does not prove an email arrives, so the next step tests that.
+
+### Step 7: Test the alert email
+A real backup failure is hard to cause on purpose, so I tested the notification path directly. The Action Group's email receiver shows **Verified**, and in the portal I used Monitor, Alerts, Action groups, `ag-backup-<name>`, **Test**. I picked a sample alert type and the test completed with **Success** for `backup-admin`:
+
+![Action Group test succeeded](images/08-action-group-test.png)
+
+The email arrived in my inbox. It is Azure's sample message, so the alert name, resource and IDs in it are made-up test values:
+
+![alert test email](images/09-alert-email.png)
+
+This proves the Action Group can email me. It does not prove the vault's `BackupHealthEvent` condition fires, because no backup has failed.
+
+### Step 8: Check the cost
+In Cost Management, Cost analysis, with the date range set to November 2026 and the services grouped, the actual cost so far is **$0.63**, with a forecast of $1.71 for the month. By service: Backup $0.63, Storage under $0.01, Azure Monitor $0.00, Bandwidth $0.00.
+
+![cost analysis](images/10-cost-analysis.png)
+
+This is the whole billing account, not only this project, and Azure cost data can lag by a day or two. It shows that the backup service is the main charge, and it is small.
+
+### Step 9: Tear down (stage 1 of 2)
+The vault has **Always On** soft delete with 14-day retention, which I confirmed with `az backup vault backup-properties show`. Azure documents that a vault cannot be deleted while it holds soft-deleted backup items, and that they are purged automatically 14 days after deletion. So teardown takes two stages.
+
+Stage 1 stops protection and deletes the backup data. Azure asked for a fresh multi-factor sign-in before it would run (see Troubleshooting), then the delete worked:
+
+```bash
+az backup protection disable -g $RG -v $VAULT -c "$CONTAINER" -i "$ITEM" --backup-management-type AzureStorage --workload-type AzureFileShare --delete-backup-data true --yes
+```
+
+The `DeleteBackupData` job completed in 21 seconds on 15 November 2026. The item then showed `ProtectionStopped` with the delete scheduled and about 14 days remaining, so the automatic purge is due around 29 November 2026. Until then the data is still recoverable.
+
+Then I removed the alert, the Action Group and the backup policy with `az` commands:
+
+```bash
+az monitor metrics alert delete -g $RG -n alert-backup-failure-<name>
+az monitor action-group delete -g $RG -n ag-backup-<name>
+az backup policy delete -g $RG -v $VAULT -n policy-daily-<name>
+```
+
+Unregistering the storage account from the vault failed with `CloudInternalError`. The container already showed as `SoftDeleted`, so I expect it to be blocked until the purge, but I have not confirmed that.
+
+I then deleted the storage account, which also deleted the file share and the two test files in it:
+
+```bash
+az storage account delete -g $RG -n $SA --yes
+```
+
+Left in Azure: the empty vault and the resource group. The vault is free while it holds nothing, and Azure does not charge for soft-deleted backup data during the 14 days. Terraform's state still lists all nine resources, so a final `terraform destroy` will see that the ones already removed are gone and clear them from the state.
+
+Stage 2, on or after 29 November 2026, is `terraform destroy` for the rest, then a check that nothing is left:
+
+```bash
+az group list --query "[].name" -o tsv
+terraform state list
+```
+
+I will add the result here once stage 2 is done.
 
 ---
 
 ## Destroying the project
 
-Do not run `terraform destroy` straight away. The vault has soft delete enabled (Azure no longer allows turning it off) and the file share has a backup item, so the vault cannot be removed until protection is stopped and its backup data is deleted. Remove those first, then destroy. I have not run a teardown for this project yet.
+Do not run `terraform destroy` straight away. The vault has soft delete enabled (Azure no longer allows turning it off) and the file share has a backup item, so the vault cannot be removed until protection is stopped and its backup data is deleted. Remove those first, then destroy. Because the vault has Always On soft delete, the vault itself can only be deleted about 14 days after the backup data is deleted. See Step 9 for what I did and where it stands.
 
 ---
 
@@ -316,9 +372,10 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 | File restored from a recovery point | ✅ Done, Restore Completed in 33 seconds (screenshots 05 and 06) |
 | Restored content matches the original | ✅ Done, `diff` printed `IDENTICAL` |
 | Alert rule exists and points at the Action Group | ✅ Done (screenshot 07) |
-| Alert email delivered | ⬜ Not tested yet |
-| Teardown verified | ⬜ Not done yet |
-| Cost measured | ⬜ Not done yet |
+| Alert email delivered | ✅ Done, Action Group test succeeded and the email arrived (screenshots 08 and 09) |
+| Alert fires on a real backup failure | ⬜ Not tested yet |
+| Teardown verified | ⏳ In progress. On 15 November: protection stopped, backup data deleted, alert, Action Group and policy removed. Storage account and file share deleted. Only the empty vault and the resource group remain until the purge after 29 November |
+| Cost measured | ✅ Done, $0.63 for 1 to 15 November, mostly the Backup service (screenshot 10) |
 
 ---
 
@@ -327,7 +384,7 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 - **Secrets and state out of Git.** `terraform.tfvars`, state files, saved plans and `.terraform/` are in `.gitignore`. Never commit state: it can contain secrets.
 - **Subscription ID not in code.** It is passed through the `ARM_SUBSCRIPTION_ID` environment variable.
 - **Alert email is a variable.** The example file holds placeholders only.
-- **Screenshots checked before committing.** The subscription ID is blacked out in the alert rule screenshot, and the portal bar that shows my account email is cropped out of all of them.
+- **Screenshots checked before committing.** The subscription ID, my email address and the billing account name are blacked out wherever they appeared (screenshots 07, 08 and 10), and the portal bar that shows my account email is cropped out of all of them.
 - **Known gaps.** The storage account still allows public network access, storage key access and anonymous blob access, which are Azure defaults. None are needed for a file share backup, and hardening them is listed under next steps.
 
 ---
@@ -343,6 +400,10 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 | `[Errno 2] No such file or directory: 'restored.txt/test.txt'` | `--dest` on `az storage file download` is a folder, not a file name | `mkdir restored`, then use `--dest restored` |
 | A command fails with strange text such as `-o tableaz storage ...` | Two commands were pasted joined, or one was split over lines. A line break ends a command | Run one command at a time, each on one line |
 | The vault cannot be deleted by `terraform destroy` | Soft delete is on and the share still has a backup item | Stop protection and delete the backup data first, then destroy |
+| Always On soft delete: vault still cannot be deleted after the backup data is deleted | The deleted items are kept 14 days and Always On cannot be switched off | Wait for the automatic purge (14 days), then destroy again |
+| `AADSTS50076` when deleting backup data | Azure requires a fresh multi-factor sign-in for this sensitive action | Run the `az login --claims-challenge ...` command from the error message, complete MFA, then retry |
+| `az backup container unregister` fails with `CloudInternalError` | Probably the soft-deleted backup data, not confirmed | Wait for the purge and try again |
+| A command printed nothing and changed nothing | I filtered its output with `grep`, which hid the error | Run it without a filter to read the real message |
 | A soft delete argument was rejected as deprecated | Argument names changed in azurerm 4.x | Check names with `terraform providers schema -json` before using them |
 
 ---
@@ -354,16 +415,17 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 - The Azure CLI starts backup and restore jobs and returns at once. Check the job list before moving on.
 - Check argument names against the provider schema, not from memory.
 - Put every tunable value in a variable, and validate the ones that can break the deployment.
-- Say plainly what was not tested. The alert rule exists, but I have not seen it fire.
+- Deleting backup data is a sensitive action: Azure wants a fresh MFA sign-in, and Always On soft delete means the vault cannot be removed for 14 days. Plan a teardown early, not at the end.
+- Say plainly what was not tested. The alert email path works, but I have not seen the rule fire on a real backup failure.
 
 ### What I would do next
 
-- Test the alert end to end: confirm the Action Group email is verified, then cause a backup health event and see the email arrive.
+- Test the alert on a real event: cause a backup health event and see the rule fire and the email arrive. The email path itself is already tested.
 - Add a `file_share_name` output so the restore steps do not hardcode the share name.
 - Add validation on `yourname`, because it becomes part of the storage account name.
 - Harden the storage account: disable anonymous blob access, and restrict network access.
 - Move Terraform state to a remote backend with locking, and run `plan` in a pipeline on pull requests.
-- Run and document a full teardown, including stopping protection and clearing soft deleted backup data.
+- Finish the teardown after 29 November 2026: run `terraform destroy` again, verify nothing is left, and add the result to Step 9.
 - Add a `name_prefix` variable for the resource names. It changes names, so it forces replacement.
 
 ---

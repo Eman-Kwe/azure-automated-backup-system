@@ -17,7 +17,7 @@ I built a system that backs up an Azure file share every night, keeps the last 7
 | **Proof it works** | `terraform plan` reported "No changes", the policy ran every night at 23:00 UTC, a test file I deleted came back from the backup with identical content, and an Action Group test email arrived (screenshots 01 to 09) |
 | **Not tested yet** | The alert firing on a real backup failure. The email path works (screenshots 08 and 09), but no failing backup has triggered the rule itself |
 | **Cost to run** | $0.63 for 1 to 15 November 2026 for the whole billing account, almost all of it the Backup service (screenshot 10). It grows with the amount of data backed up |
-| **Cleanup** | In progress. Protection is stopped and the backup data is deleted (soft-deleted for 14 days). The vault can only be removed after 29 November 2026, see Step 9 |
+| **Cleanup** | In progress. Everything is deleted except the empty vault and the resource group. The vault can only be removed after 29 November 2026, see Step 9 |
 | **Tools** | Terraform, Azure Backup, Recovery Services vault, Azure Files, Azure Monitor, Azure CLI |
 
 ---
@@ -335,7 +335,13 @@ az backup policy delete -g $RG -v $VAULT -n policy-daily-<name>
 
 Unregistering the storage account from the vault failed with `CloudInternalError`. The container already showed as `SoftDeleted`, so I expect it to be blocked until the purge, but I have not confirmed that.
 
-Left in Azure after stage 1: the vault, the storage account with its file share, and the resource group. Terraform's state still lists all nine resources, so a final `terraform destroy` will see that the ones already removed are gone and clear them from the state.
+I then deleted the storage account, which also deleted the file share and the two test files in it:
+
+```bash
+az storage account delete -g $RG -n $SA --yes
+```
+
+Left in Azure: the empty vault and the resource group. The vault is free while it holds nothing, and Azure does not charge for soft-deleted backup data during the 14 days. Terraform's state still lists all nine resources, so a final `terraform destroy` will see that the ones already removed are gone and clear them from the state.
 
 Stage 2, on or after 29 November 2026, is `terraform destroy` for the rest, then a check that nothing is left:
 
@@ -368,7 +374,7 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 | Alert rule exists and points at the Action Group | ✅ Done (screenshot 07) |
 | Alert email delivered | ✅ Done, Action Group test succeeded and the email arrived (screenshots 08 and 09) |
 | Alert fires on a real backup failure | ⬜ Not tested yet |
-| Teardown verified | ⏳ In progress. On 15 November: protection stopped, backup data deleted, alert, Action Group and policy removed. The vault, storage account and resource group remain until the purge after 29 November |
+| Teardown verified | ⏳ In progress. On 15 November: protection stopped, backup data deleted, alert, Action Group and policy removed. Storage account and file share deleted. Only the empty vault and the resource group remain until the purge after 29 November |
 | Cost measured | ✅ Done, $0.63 for 1 to 15 November, mostly the Backup service (screenshot 10) |
 
 ---

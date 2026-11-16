@@ -4,7 +4,7 @@ I built a system that backs up an Azure file share every night, keeps the last 7
 
 ### 🎬 Video Walkthrough
 
-[Watch the project walkthrough pending](PASTE-LOOM-LINK-HERE)
+[Watch the project walkthrough coming 17 Nov](PASTE-LOOM-LINK-HERE)
 
 
 ---
@@ -16,7 +16,7 @@ I built a system that backs up an Azure file share every night, keeps the last 7
 | **What I built** | A resource group, a storage account with a file share, a Recovery Services vault (locally redundant), a daily backup policy (23:00 UTC, 7 backups kept), the share registered and protected by that policy, an email Action Group, and a metric alert on backup health events |
 | **Proof it works** | `terraform plan` reported "No changes", the policy ran every night at 23:00 UTC, a test file I deleted came back from the backup with identical content, and an Action Group test email arrived (screenshots 01 to 09) |
 | **Cost to run** | $0.63 for 1 to 15 November 2026 for the whole billing account, almost all of it the Backup service (screenshot 10). It grows with the amount of data backed up |
-| **Cleanup** | Done. Everything is deleted except the empty vault and the resource group, which Azure keeps for 14 days (they can be removed after 29 November 2026), see Step 9 |
+| **Cleanup** | Stage 1 done. Everything is deleted except the empty vault and the resource group, which Azure keeps for 14 days. Stage 2 (terraform destroy and a final check) comes after 29 November 2026, see Step 9 |
 | **Tools** | Terraform, Azure Backup, Recovery Services vault, Azure Files, Azure Monitor, Azure CLI |
 
 ---
@@ -359,7 +359,7 @@ Do not run `terraform destroy` straight away. The vault has soft delete enabled 
 | Restored content matches the original | ✅ Done, `diff` printed `IDENTICAL` |
 | Alert rule exists and points at the Action Group | ✅ Done (screenshot 07) |
 | Alert email delivered | ✅ Done, Action Group test succeeded and the email arrived (screenshots 08 and 09) |
-| Teardown Verified | ✅ Done. Protection stopped, backup data deleted, and the alert, Action Group, policy, storage account and file share removed. Only the empty vault and the resource group are left, because Azure keeps them until its 14-day purge ends on 29 November 2026 |
+| Teardown, stage 1 of 2 | ✅ Stage 1 done. Protection stopped, backup data deleted, and the alert, Action Group, policy, storage account and file share removed. Only the empty vault and the resource group are left, because Azure keeps them until its 14-day purge ends on 29 November 2026. Stage 2 comes after 29 November 2026 |
 | Cost measured | ✅ Done, $0.63 for 1 to 15 November, mostly the Backup service (screenshot 10) |
 
 ---
